@@ -1,5 +1,4 @@
 # DesignFactory  
-Graduated work at ML-Engineering course, Karpov courses + ITMO AI Talent Hub
 
 ## 1.  Бизнес-анализ (Business Understanding)   
 
