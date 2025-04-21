@@ -7,6 +7,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+.DS_Store
 .Python
 build/
 develop-eggs/
@@ -172,3 +173,16 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Working files and folders
+.source/
+Documentation.pdf
+EotG_data_final/
+SV16M_PLTBSM_PALS_VSM_MBhi_M500_v033_v064_20160608_both.txt
+WHIPS-NO2-TROPOMI-4kmCONUS_01-01-2024.nc
+data/
+nsidc-download_SV16M_PLTBSM.001_2025-04-12.py
+research.ipynb
+supervised/
+"\320\222\321\201\320\265 \320\276\320\277\320\265\321\200\320\260\321\206\320\270\320\270.csv"
+"\320\222\321\213\320\277\320\276\320\273\320\275\320\265\320\275\320\275\321\213\320\265 \320\276\320\277\320\265\321\200\320\260\321\206\320\270\320\270.csv"
