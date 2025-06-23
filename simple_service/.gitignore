@@ -10,6 +10,9 @@ __pycache__/
 images/
 mlmodels/
 
+# Creds files
+app/workers/earthengine-key.json
+
 # Testing db
 testing.db
 

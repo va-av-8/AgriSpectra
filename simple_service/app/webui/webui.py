@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import logging
 import time
+import pandas as pd
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from auth.jwt_handler import decode_access_token
@@ -113,7 +114,7 @@ def api_request(method, endpoint, data=None):
 
 # Страница входа в систему
 def signin_page():
-    st.title("Вход в систему")
+    st.title("🌱 Вход в систему")
     email = st.text_input("Email", key="login_email")
     password = st.text_input("Пароль", type="password", key="login_password")
     login_button = st.button("Войти")
@@ -150,7 +151,7 @@ def signin_page():
 
 # Страница регистрации
 def signup_page():
-    st.title("Регистрация")
+    st.title("🌱 Регистрация")
     email = st.text_input("Email", key="register_email")
     password = st.text_input("Пароль", type="password", key="register_password")
     username = st.text_input("Имя пользователя", key="register_username")
@@ -171,7 +172,7 @@ def signup_page():
 
 # Страница личного кабинета
 def dashboard_page():
-    st.title("Личный кабинет")
+    st.title("🌱 Личный кабинет")
     if not st.session_state.logged_in or not st.session_state.user_id:
         st.error("Сначала войдите в систему")
         st.session_state.current_page = "Вход"
@@ -210,99 +211,185 @@ def dashboard_page():
     if response and response.status_code == 200:
         models = response.json()
         if models:
-            for item in models:
-                st.write(
-                    f"ID модели: {item.get('model_id', 'Нет данных')}, "
-                    f"Название: {item.get('name', 'Нет данных')}, "
-                    f"Описание: {item.get('description', 'Нет данных')}, "
-                    f"Стоимость: {item.get('cost', 'Нет данных')}"
-                            )
+            df_models = pd.DataFrame(models)
+        
+            # Переименуем столбцы для удобства отображения
+            df_models = df_models.rename(columns={
+                "model_id": "ID модели",
+                "name": "Название",
+                "description": "Описание",
+                "cost": "Стоимость"
+            })
+
+            df_models_dspl = df_models[["Название", "Описание", "Стоимость"]]
+            df_models_dspl["Стоимость"] = df_models_dspl["Стоимость"].astype(int)
+            df_models_dspl = df_models_dspl.reset_index(drop=True)
+
+            def render_html_table(df):
+                html = "<table style='width:100%; border-collapse:collapse;'>"
+                html += "<thead><tr>" + "".join(f"<th style='border:1px solid #ddd; padding:8px; text-align:left'>{col}</th>" for col in df.columns) + "</tr></thead>"
+                html += "<tbody>"
+                for _, row in df.iterrows():
+                    html += "<tr>"
+                    for cell in row:
+                        cell_html = str(cell).replace('\n', '<br>')
+                        html += "<td style='border:1px solid #ddd; padding:8px; vertical-align:top'>{}</td>".format(cell_html)
+                    html += "</tr>"
+                html += "</tbody></table>"
+                st.markdown(html, unsafe_allow_html=True)
+
+            # Выводим таблицу
+            render_html_table(df_models_dspl)
         else:
             st.write("База ML моделей пуста")
     else:
         st.error("Ошибка получения списка моделей")
 
-    # Запрос предсказания
-    st.subheader("Запрос предсказания")
+    st.subheader("Получение рекомендаций по уходу")
+   
+    # 1. Выбор модели
+    model_names = df_models["Название"].tolist()
+    selected_name = st.selectbox("Выберите модель", model_names)
+    model_id = int(df_models[df_models["Название"] == selected_name]["ID модели"].values[0])
 
-    model_id = st.number_input("ID модели", min_value=1, value=1)
+    # 2. Ввод координат
+    lat_input = st.text_input("Широта (от -90 до 90)", placeholder="необязательно")
+    lon_input = st.text_input("Долгота (от -180 до 180)", placeholder="необязательно")
 
-    if 'uploaded_image_id' not in st.session_state:
-        uploaded_file = st.file_uploader("Загрузите изображение", type=["jpg", "png", "jpeg"])
+    # Преобразуем строки в float или None
+    def parse_coord(val, min_val, max_val):
+        try:
+            f = float(val)
+            if min_val <= f <= max_val:
+                return f
+            else:
+                st.warning(f"Значение должно быть между {min_val} и {max_val}")
+                return None
+        except ValueError:
+            return None
 
-        if uploaded_file:
+    lat = parse_coord(lat_input, -90, 90) if lat_input else None
+    lon = parse_coord(lon_input, -180, 180) if lon_input else None
+
+    # Флаг для обновления file_uploader
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = "uploader_1"
+
+    uploaded_file = st.file_uploader(
+        "Загрузите изображение", 
+        type=["jpg", "jpeg", "png"], 
+        key=st.session_state["uploader_key"]
+    )
+
+    # При загрузке нового файла — очищаем предыдущее состояние
+    if uploaded_file:
+        st.session_state.pop("last_result", None)
+        st.session_state["current_image_file"] = uploaded_file
+
+    # Если изображение уже есть в сессии — отображаем его
+    if "current_image_file" in st.session_state:
+        st.image(st.session_state["current_image_file"], caption="Загруженное изображение", width=500)
+
+    # Кнопка для отправки на предсказание
+    if st.button("🌱 Получить рекомендации"):
+        if "current_image_file" not in st.session_state:
+            st.warning("Сначала загрузите изображение.")
+            st.stop()
+
+        # Сброс предыдущих результатов
+        st.session_state.pop("last_result", None)
+
+        # Загрузка изображения на сервер
+        with st.spinner("Загрузка изображения..."):
+            uploaded_file = st.session_state["current_image_file"]
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
             token = st.session_state.get('token')
             headers = {"Authorization": f"Bearer {token}"}
 
-            response = requests.post(
-                f"{API_URL}/service/upload",
-                files=files,
-                headers=headers
-            )
+            response = requests.post(f"{API_URL}/service/upload", files=files, headers=headers)
 
-            if response.status_code == 201:
-                img_data = response.json()[0]
-                st.session_state.uploaded_image_id = img_data['image_id']
-                public_url = img_data['image_url']
-                st.session_state.uploaded_image_url = public_url
-                st.success(f"Изображение успешно загружено. ID изображения: {img_data['image_id']}")
-                st.markdown(f'<img src="{public_url}" width="200">', unsafe_allow_html=True)
+            if response.status_code != 201:
+                st.error("Ошибка при загрузке изображения")
+                st.stop()
+
+            img_data = response.json()[0]
+            image_id = img_data["image_id"]
+            image_url = img_data["image_url"]
+
+            # Сохраняем URL для отображения результата
+            st.session_state["uploaded_image_url"] = image_url
+            # st.image(image_url, caption="Загруженное изображение", width=300)
+
+        # Запрос предсказания
+        with st.spinner("Отправка изображения на обработку..."):
+            payload = {
+                "model_id": model_id,
+                "image_id": image_id,
+                **({"latitude": lat} if lat is not None else {}),
+                **({"longitude": lon} if lon is not None else {}),
+            }
+
+            post = api_request("POST", "/service/prediction", payload)
+
+            if not post or post.status_code != 202:
+                st.error("Ошибка при отправке на предсказание")
+                st.stop()
+
+            task_id = post.json().get("task_id")
+
+        # Ожидание завершения
+        with st.spinner("Обработка изображения, подождите..."):
+            for _ in range(30):
+                time.sleep(2)
+                status = api_request("GET", f"/service/tasks/{task_id}")
+                if status and status.status_code == 200:
+                    items = status.json()
+                    if any(item.get("status") == "complete" for item in items):
+                        break
             else:
-                st.error("Ошибка загрузки изображения")
-    else:
-        st.image(st.session_state.uploaded_image_url)
+                st.error("Превышено время ожидания обработки")
+                st.stop()
 
-    if 'uploaded_image_id' in st.session_state:
-        if st.button("Выполнить предсказание"):
-            response = api_request(
-                "POST",
-                "/service/prediction",
-                {"model_id": model_id,
-                 "image_id": st.session_state.uploaded_image_id}
-            )
-            if response and response.status_code == 202:
-                result = response.json()
-                task_id = result.get('task_id', 'Нет данных')
-                cost = result.get('cost', 'Нет данных')
-                st.success("Данные успешно отправлены для получения предсказания")
-                st.write(f"Создана задача для ML сервиса, task_id: {task_id}")
-                st.write(f"Списано кредитов: {cost}")
-                del st.session_state.uploaded_image_id
-                del st.session_state.uploaded_image_url
-            else:
-                st.error("Ошибка получения предсказания")
+        # Получение предсказания
+        get_preds = api_request("GET", "/user/predictions")
+        if not get_preds or get_preds.status_code != 200:
+            st.error("Не удалось получить результаты предсказания")
+            st.stop()
 
+        preds = get_preds.json()
+        rec = next((p for p in reversed(preds) if p.get("prediction_id") == task_id), None)
+        if not rec and preds:
+            rec = preds[-1]
 
-    # История тасок ML сервису
-    st.subheader("Статусы заданий для ML сервиса")
-    task_id = st.number_input("Идентификатор задачи, task_id", min_value=0)
-    if st.button("Показать статусы заданий"):
-        response = api_request(
-            "GET",
-            f"/service/tasks/{task_id}"
-            )
-        if response and response.status_code == 200:
-            history = response.json()
-            if history:
-                for item in history:
-                    st.write(
-                        f"Дата: {item.get('created_at', 'Нет данных')}, "
-                        f"Модель: {item.get('model_id', 'Нет данных')}, "
-                        f"Ввод: {item.get('input_data', 'Нет данных')}, "
-                        f"Статус: {item.get('status', 'Нет данных')}, "
-                        f"Идентификатор предсказания: {item.get('prediction_id', 'Нет данных')}, "
-                        f"Предсказанное качество: {item.get('prediction_result', 'Нет данных')}"
-                             )
-            else:
-                st.write("История заданий пуста")
+        if rec:
+            st.session_state["last_result"] = {
+                "image_url": rec["input_photo_url"],
+                "result": rec.get("prediction_result", "—")
+            }
         else:
-            st.error("Ошибка получения истории")
+            st.error("Предсказание не найдено")
+
+    # Кнопка для очистки результата и изображения
+    if st.button("Очистить вывод"):
+        st.session_state.pop("current_image_file", None)
+        st.session_state.pop("uploaded_image_url", None)
+        st.session_state.pop("last_result", None)
+
+        # Перегенерируем ключ, чтобы принудительно перерисовать file_uploader
+        st.session_state["uploader_key"] = f"uploader_{time.time()}"
+        st.experimental_rerun()
+
+    # Отображение результата (если есть)
+    if "last_result" in st.session_state:
+        st.markdown("---")
+        # st.image(st.session_state["last_result"]["image_url"], caption="Изображение из предсказания", width=300)
+        st.markdown(f"**Рекомендации по уходу:** {st.session_state['last_result']['result']}")
+        st.success("Готово!")
 
     # История предсказаний
-    st.subheader("История предсказаний")
+    st.subheader("История запросов")
 
-    if st.button("Показать историю предсказаний"):
+    if st.button("Показать историю запросов"):
         response = api_request("GET", "/user/predictions")
 
         if response and response.status_code == 200:
@@ -313,9 +400,10 @@ def dashboard_page():
                     st.write(f"Дата: {item.get('created_at', 'Нет данных')}, ")
                     st.write(f"Модель: {item.get('model_id', 'Нет данных')}")
                     st.markdown(f'<img src="{public_url}" width="200">', unsafe_allow_html=True)
+                    st.write(f"Координаты, широта: {item.get('latitude')}, долгота: {item.get('longitude')}")
                     st.write(f"Стоимость: {item.get('cost', 'Нет данных')}")
                     st.write(f"Идентификатор предсказания: {item.get('id', 'Нет данных')}")
-                    st.write(f"Предсказание: {item.get('prediction_result', 'Нет данных')}")
+                    st.write(f"Рекомендации: {item.get('prediction_result', 'Нет данных')}")
                     st.markdown("---")
             else:
                 st.write("История предсказаний пуста")
@@ -343,7 +431,7 @@ def dashboard_page():
 
 # Главная страница
 def main_page():
-    st.title("Добро пожаловать в AgriSpectra")
+    st.title("🌱 Добро пожаловать в AgriSpectra")
     st.write("""
     AgriSpectra - это сервис для прогнозирования стадии роста кукурузы, типа и степени её повреждения.
     Наш сервис предоставляет следующие возможности:

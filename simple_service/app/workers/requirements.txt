@@ -19,3 +19,4 @@ wandb==0.15.5
 minio==7.2.15
 Pillow==9.5.0
 matplotlib==3.8.0
+earthengine-api==0.1.331

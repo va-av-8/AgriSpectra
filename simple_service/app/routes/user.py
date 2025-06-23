@@ -113,7 +113,9 @@ async def get_predictions_user(
                 "id": prediction.prediction_id,
                 "model_id": prediction.model_id,
                 "input_photo_url": prediction.input_photo_url,
-                "prediction_result": prediction.prediction_result,
+                "latitude": prediction.input_latitude,
+                "longitude": prediction.input_longitude,
+                "prediction_result": prediction.recommendation,
                 "created_at": prediction.timestamp.isoformat(),
                 "cost": prediction.cost
             } for prediction in predictions

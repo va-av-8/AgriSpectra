@@ -5,7 +5,6 @@ import logging
 import pika
 import json
 from minio import Minio
-from datetime import timedelta
 from sqlalchemy import select, desc
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
 from typing import List, Dict, Any, Annotated
@@ -16,8 +15,8 @@ from models.model import ModelArtifactRead, Models
 from models.prediction import PredictionResponse, PredictionRequest
 from models.user_images import UserImages
 from models.ml_task import MLTasks
-from services.crud import service as PredictService
 from services.crud import user as UserService
+from services.crud import service as PredictService
 from workers.connect import connect_to_rabbitmq
 from webui.auth.authenticate import authenticate_user
 
@@ -143,6 +142,27 @@ def send_data_to_predict(
         if not img:
             raise HTTPException(404, "Image not found")
 
+    latitude = None
+    longitude = None
+    
+    if req.latitude is not None:
+        try:
+            latitude = float(req.latitude)
+            if not (-90 <= latitude <= 90):
+                raise HTTPException(400, f"Invalid latitude: {latitude}. Must be between -90 and 90")
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"Invalid latitude format: {req.latitude}")
+    
+    if req.longitude is not None:
+        try:
+            longitude = float(req.longitude)
+            if not (-180 <= longitude <= 180):
+                raise HTTPException(400, f"Invalid longitude: {longitude}. Must be between -180 and 180")
+        except (ValueError, TypeError):
+            raise HTTPException(400, f"Invalid longitude format: {req.longitude}")
+
+    logging.info(f"Validated coordinates: lat={latitude}, lon={longitude}")
+
     # Берём модель
     model_ent = session.get(Models, req.model_id)
     if not model_ent:
@@ -166,6 +186,7 @@ def send_data_to_predict(
     session.commit()
     session.refresh(task)
 
+    logging.info(f"🚀 sending task with lat={req.latitude}, lon={req.longitude}")
     # Публикуем в очередь
     payload = {
         "task_id": task.task_id,
@@ -173,6 +194,8 @@ def send_data_to_predict(
         "model_id": req.model_id,
         "artifact_path": model_ent.artifact_path,
         "image_id": img.image_id,
+        "latitude": req.latitude,
+        "longitude": req.longitude,
     }
     conn = connect_to_rabbitmq()
     ch = conn.channel()
