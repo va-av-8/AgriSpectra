@@ -88,19 +88,19 @@ def api_request(method, endpoint, data=None):
             st.rerun()
         elif e.response.status_code == 404:
             st.error("Введены некорректные данные")
-            time.sleep(5)
+            time.sleep(1)
             st.session_state.logged_in = False
             st.session_state.current_page = "Вход"
             st.rerun()
         elif e.response.status_code == 403:
             st.error("Неверный пароль!")
-            time.sleep(5)
+            time.sleep(1)
             st.session_state.logged_in = False
             st.session_state.current_page = "Вход"
             st.rerun()
         elif e.response.status_code == 409:
             st.error("Этот пользователь уже существует!")
-            time.sleep(5)
+            time.sleep(1)
             st.session_state.logged_in = False
             st.session_state.current_page = "Вход"
             st.rerun()
@@ -137,13 +137,13 @@ def signin_page():
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 st.error("Введены некорректные данные")
-                time.sleep(5)
+                time.sleep(1)
                 st.session_state.logged_in = False
                 st.session_state.current_page = "Вход"
                 st.rerun()
             elif e.response.status_code == 403:
                 st.error("Неверный пароль!")
-                time.sleep(5)
+                time.sleep(1)
                 st.session_state.logged_in = False
                 st.session_state.current_page = "Вход"
                 st.rerun()
@@ -195,12 +195,12 @@ def dashboard_page():
     if st.button("Пополнить баланс"):
         response = api_request(
             "POST",
-            f"/user/balance/replenish",
+            "/user/balance/replenish",
             {"amount": amount}
             )
         if response and response.status_code == 200:
             st.success("Баланс успешно пополнен")
-            time.sleep(3)
+            time.sleep(1)
             st.rerun()
         else:
             st.error("Ошибка пополнения баланса")
@@ -212,7 +212,7 @@ def dashboard_page():
         models = response.json()
         if models:
             df_models = pd.DataFrame(models)
-        
+
             # Переименуем столбцы для удобства отображения
             df_models = df_models.rename(columns={
                 "model_id": "ID модели",
@@ -247,12 +247,12 @@ def dashboard_page():
 
     st.subheader("Получение рекомендаций по уходу")
    
-    # 1. Выбор модели
+    # Выбор модели
     model_names = df_models["Название"].tolist()
     selected_name = st.selectbox("Выберите модель", model_names)
     model_id = int(df_models[df_models["Название"] == selected_name]["ID модели"].values[0])
 
-    # 2. Ввод координат
+    # Ввод координат
     lat_input = st.text_input("Широта (от -90 до 90)", placeholder="необязательно")
     lon_input = st.text_input("Долгота (от -180 до 180)", placeholder="необязательно")
 
@@ -340,7 +340,7 @@ def dashboard_page():
         # Ожидание завершения
         with st.spinner("Обработка изображения, подождите..."):
             for _ in range(30):
-                time.sleep(2)
+                time.sleep(1)
                 status = api_request("GET", f"/service/tasks/{task_id}")
                 if status and status.status_code == 200:
                     items = status.json()

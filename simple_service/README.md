@@ -9,6 +9,7 @@ Functionality:
 - autorisation   
 - balance operations (top up, check, without acquiring)
 - predictions of maize growing stage, damage type and damage extent based on mobile phone photos
+- predictions of maize growing stage based on Sentinel-1 VH values
 - history checking (transactions, predictions)
 
 
@@ -37,6 +38,7 @@ Uploaded images saved in MinIO bucket.
 Steps:
 1. git pull - get all project code      
 2. Create .env files, using names for variables exactly as in .evn.template files for each folder, where it is.
+3. Create service account at Google Cloud, Enable Earth Engine API and get earthengine-key.json key.
 3. docker compose build    
 4. docker compose up    
 
@@ -50,4 +52,4 @@ Steps:
 For any additional information you can mail to: anastasija.gapeeva@gmail.com
 
 ## Project status
-Ongoing. UI improvements will be added during nex two weeks. Satellite data will be added during next 3 weeks. 
+Ongoing. UI improvements will be added during nex two weeks.  data will be added during next 3 weeks. 

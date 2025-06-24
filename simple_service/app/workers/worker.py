@@ -43,6 +43,7 @@ preprocess = T.Compose([
         T.Normalize(mean=mean, std=std)
     ])
 
+
 def ml_task(ch, method, properties, body):
     try:
         with Session(engine) as session:
@@ -82,26 +83,42 @@ def ml_task(ch, method, properties, body):
             if not user_img:
                 raise RuntimeError(f"Image with id={image_id} not found in UserImages")
 
-            # Скачиваем модель-артефакт из WandB
-            logging.info(f"Task {msg['task_id']}: downloading model/artifact")
-            api = wandb.Api()
-            artifact = api.artifact(msg["artifact_path"], type="model")
-            art_dir = artifact.download()
-            raw = artifact.metadata["inverse_label_maps"]
-            label_maps = {
-                head: {int(k): v for k, v in mapping.items()}
-                for head, mapping in raw.items()
-            }
+            model_cache = {}
 
-            # Ищем скриптованный файл
-            scripted_candidates = glob.glob(os.path.join(art_dir, "*_scripted.pt"))
-            if not scripted_candidates:
-                raise FileNotFoundError(f"No *_scripted.pt in {art_dir}")
-            scripted_path = scripted_candidates[0]
-            logging.info("Using scripted model file: %s", scripted_path)
+            # Кэшируем модели в памяти, чтобы не загружать заново
+            def get_model_from_wandb(artifact_path: str) -> tuple[torch.jit.ScriptModule, dict]:
+                if artifact_path in model_cache:
+                    logging.info(f"Using cached model for {artifact_path}")
+                    return model_cache[artifact_path]
 
-            # Загружаем скриптованную модель на CPU
-            model = torch.jit.load(scripted_path, map_location="cpu")
+                logging.info(f"Downloading model artifact: {artifact_path}")
+                api = wandb.Api()
+                artifact = api.artifact(artifact_path, type="model")
+
+                # Загружаем label maps из metadata
+                raw = artifact.metadata["inverse_label_maps"]
+                label_maps = {
+                    head: {int(k): v for k, v in mapping.items()}
+                    for head, mapping in raw.items()
+                }
+
+                # Ищем файл *_scripted.pt
+                model_path = next((f.name for f in artifact.files() if f.name.endswith("_scripted.pt")), None)
+                if not model_path:
+                    raise FileNotFoundError(f"No *_scripted.pt found in artifact {artifact_path}")
+
+                # Читаем файл в память
+                with artifact.get_path(model_path).open("rb") as f:
+                    buffer = io.BytesIO(f.read())
+                    model = torch.jit.load(buffer, map_location="cpu")
+                    model.eval()
+
+                model_cache[artifact_path] = (model, label_maps)
+                return model, label_maps
+
+            # Используем
+            artifact_path = msg["artifact_path"]
+            model, label_maps = get_model_from_wandb(artifact_path)
             model.eval()
 
             # Скачиваем изображение из MinIO (public URL)
@@ -164,53 +181,68 @@ def ml_task(ch, method, properties, body):
                 end_date_str = end_date.strftime('%Y-%m-%d')
                 start_date_str = start_date.strftime('%Y-%m-%d')
 
+                kmeans_model_cache = {}
+
                 # Определяем стадию роста, Sentinel-1
                 # Загружаем артефакт модели с wandb
                 logging.info(f"Task {msg['task_id']}: loading growth stage model")
-                run = wandb.init(project="growth-and-moisture-kmeans", job_type="inference")
-                artifact = run.use_artifact('a-gapeeva/growth-and-moisture-kmeans/growth-kmeans:latest', type='model')
-                artifact_dir = artifact.download()
 
-                # Загружаем модель K-means для стадии роста
-                model_files = glob.glob(os.path.join(artifact_dir, "*.pkl"))
-                if not model_files:
-                    model_files = glob.glob(os.path.join(artifact_dir, "*.joblib"))
+                def get_kmeans_model_from_wandb(artifact_path: str) -> joblib:
+                    if artifact_path in kmeans_model_cache:
+                        logging.info(f"Using cached KMeans model for {artifact_path}")
+                        return kmeans_model_cache[artifact_path]
 
-                if model_files:
-                    model_sent = joblib.load(model_files[0])
-                    class_labels_growth = ["S", "V", "F", "M"]  # Seedling, Vegetative, Flowering, Maturity
+                    logging.info(f"Downloading KMeans model artifact: {artifact_path}")
+                    artifact = wandb.use_artifact(artifact_path, type='model')
 
-                    # Получаем данные Sentinel-1 для точки
-                    sentinel1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
-                        .filterBounds(point) \
-                        .filterDate(start_date_str, end_date_str) \
-                        .select(['VH']) \
-                        .median()
+                    # Ищем .pkl или .joblib файл
+                    model_file = next(
+                        (f.name for f in artifact.files() if f.name.endswith(".pkl") or f.name.endswith(".joblib")),
+                        None
+                    )
+                    if not model_file:
+                        raise FileNotFoundError(f"No .pkl or .joblib model found in artifact {artifact_path}")
 
-                    # Извлекаем значения для точки
-                    sentinel_data = sentinel1.reduceRegion(
-                        reducer=ee.Reducer.mean(),
-                        geometry=point,
-                        scale=10,
-                        maxPixels=1e9
-                    ).getInfo()
+                    with artifact.get_path(model_file).open("rb") as f:
+                        buffer = io.BytesIO(f.read())
+                        model = joblib.load(buffer)
+
+                        kmeans_model_cache[artifact_path] = model
+                        return model
+
+                artifact_path_kmeans = 'a-gapeeva/growth-and-moisture-kmeans/growth-kmeans:latest'
+                model_sent = get_kmeans_model_from_wandb(artifact_path_kmeans)
+
+                class_labels_growth = ["S", "V", "F", "M"]  # Seedling, Vegetative, Flowering, Maturity
+
+                # Получаем данные Sentinel-1 для точки
+                sentinel1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
+                    .filterBounds(point) \
+                    .filterDate(start_date_str, end_date_str) \
+                    .select(['VH']) \
+                    .median()
+
+                # Извлекаем значения для точки
+                sentinel_data = sentinel1.reduceRegion(
+                    reducer=ee.Reducer.mean(),
+                    geometry=point,
+                    scale=10,
+                    maxPixels=1e9
+                ).getInfo()
+                
+                # Подготавливаем данные для модели (пример признаков)
+                if 'VH' in sentinel_data and sentinel_data['VH'] is not None:
+                    vh = sentinel_data['VH']
+                    # Создаем одномерный признак для модели
+                    features_growth = np.array([[vh]])
                     
-                    # Подготавливаем данные для модели (пример признаков)
-                    if 'VH' in sentinel_data and sentinel_data['VH'] is not None:
-                        vh = sentinel_data['VH']
-                        # Создаем одномерный признак для модели
-                        features_growth = np.array([[vh]])
-                        
-                        # Получаем предсказание
-                        growth_prediction = model_sent.predict(features_growth)[0]
-                        predicted_growth_stage = class_labels_growth[growth_prediction]
-                        logging.info(f"Predicted growth stage: {predicted_growth_stage}")
-                    else:
-                        predicted_growth_stage = "unknown"
-                        logging.warning("Failed to get Sentinel-1 data")
+                    # Получаем предсказание
+                    growth_prediction = model_sent.predict(features_growth)[0]
+                    predicted_growth_stage = class_labels_growth[growth_prediction]
+                    logging.info(f"Predicted growth stage: {predicted_growth_stage}")
                 else:
                     predicted_growth_stage = "unknown"
-                    logging.warning("Growth model file not found")
+                    logging.warning("Failed to get Sentinel-1 data")
                 
                 wandb.finish()
 
