@@ -95,11 +95,11 @@ async def upload_image(
 
     # Сохраняем запись в БД
     user_image = UserImages(
-    user_id=user_id,
-    image_url=public_url,
-    internal_url=internal_url,
-    input_data=object_name
-    )
+                            user_id=user_id,
+                            image_url=public_url,
+                            internal_url=internal_url,
+                            input_data=object_name
+                            )
     session.add(user_image)
     session.commit()
     session.refresh(user_image)
@@ -110,11 +110,10 @@ async def upload_image(
     }]
 
 
-@service_route.post(
-    "/prediction",
-    response_model=PredictionResponse,
-    status_code=status.HTTP_202_ACCEPTED
-)
+@service_route.post("/prediction",
+                    response_model=PredictionResponse,
+                    status_code=status.HTTP_202_ACCEPTED
+                    )
 def send_data_to_predict(
     req: PredictionRequest,
     user_id: int = Depends(authenticate_user),
@@ -144,7 +143,7 @@ def send_data_to_predict(
 
     latitude = None
     longitude = None
-    
+
     if req.latitude is not None:
         try:
             latitude = float(req.latitude)
@@ -152,7 +151,7 @@ def send_data_to_predict(
                 raise HTTPException(400, f"Invalid latitude: {latitude}. Must be between -90 and 90")
         except (ValueError, TypeError):
             raise HTTPException(400, f"Invalid latitude format: {req.latitude}")
-    
+
     if req.longitude is not None:
         try:
             longitude = float(req.longitude)
