@@ -1,0 +1,6 @@
+outs:
+- md5: 65dcf8e28afb2aa6be7ad3a0a06b0daa.dir
+  size: 2835369229
+  nfiles: 140549
+  hash: md5
+  path: EotG_data_final
