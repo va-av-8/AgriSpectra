@@ -9,6 +9,9 @@ __pycache__/
 # Folders
 images/
 mlmodels/
+app/workers/artifacts
+
+
 
 # Creds files
 app/workers/earthengine-key.json

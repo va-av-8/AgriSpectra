@@ -1,7 +1,7 @@
 # AgriSpectra
 
 ## Description
-AgriSpectra is a simple ml service for maize growing stage, damage type and damage extent predictions.     
+AgriSpectra is a simple ml service based on Eyes on the groud dataset for maize growing stage, damage type and damage extent predictions.     
 Web interface 
 Functionality:    
 - main page with service description    
@@ -52,4 +52,4 @@ Steps:
 For any additional information you can mail to: anastasija.gapeeva@gmail.com
 
 ## Project status
-Ongoing. UI improvements will be added during nex two weeks.  data will be added during next 3 weeks. 
+Ongoing. UI improvements will be added during nex two weeks. Yield data will be added during next 3 weeks. 
