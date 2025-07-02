@@ -107,8 +107,9 @@ def ml_task(ch, method, properties, body):
                 if not model_path:
                     raise FileNotFoundError(f"No *_scripted.pt found in artifact {artifact_path}")
 
-                # Читаем файл в память
-                with artifact.get_path(model_path).open("rb") as f:
+                # Скачиваем файл и читаем
+                local_path = artifact.get_path(model_path).download()
+                with open(local_path, "rb") as f:
                     buffer = io.BytesIO(f.read())
                     model = torch.jit.load(buffer, map_location="cpu")
                     model.eval()
@@ -193,8 +194,8 @@ def ml_task(ch, method, properties, body):
                         return kmeans_model_cache[artifact_path]
 
                     logging.info(f"Downloading KMeans model artifact: {artifact_path}")
-                    artifact = wandb.use_artifact(artifact_path, type='model')
-
+                    api = wandb.Api()
+                    artifact = api.artifact(artifact_path, type='model')
                     # Ищем .pkl или .joblib файл
                     model_file = next(
                         (f.name for f in artifact.files() if f.name.endswith(".pkl") or f.name.endswith(".joblib")),
@@ -203,13 +204,14 @@ def ml_task(ch, method, properties, body):
                     if not model_file:
                         raise FileNotFoundError(f"No .pkl or .joblib model found in artifact {artifact_path}")
 
-                    with artifact.get_path(model_file).open("rb") as f:
+                    local_path = artifact.get_path(model_file).download()
+                    with open(local_path, "rb") as f:
                         buffer = io.BytesIO(f.read())
                         model = joblib.load(buffer)
 
-                        kmeans_model_cache[artifact_path] = model
-                        return model
-
+                    kmeans_model_cache[artifact_path] = model
+                    return model
+                
                 artifact_path_kmeans = 'a-gapeeva/growth-and-moisture-kmeans/growth-kmeans:latest'
                 model_sent = get_kmeans_model_from_wandb(artifact_path_kmeans)
 
